@@ -1,3 +1,4 @@
+
 'use server';
 
 /**
@@ -38,7 +39,8 @@ export async function transformImageStyle(input: TransformImageStyleInput): Prom
   return transformImageStyleFlow(input);
 }
 
-const prompt = ai.definePrompt({
+// This prompt definition is available but the flow below implements custom logic.
+const transformImageStylePromptObject = ai.definePrompt({
   name: 'transformImageStylePrompt',
   input: {schema: TransformImageStyleInputSchema},
   output: {schema: TransformImageStyleOutputSchema},
@@ -57,25 +59,53 @@ const transformImageStyleFlow = ai.defineFlow(
     inputSchema: TransformImageStyleInputSchema,
     outputSchema: TransformImageStyleOutputSchema,
   },
-  async input => {
-    // 1. Generate a detailed text prompt based on the input image and desired style.
-    const {text: generatedPrompt} = await ai.generate({
-      model: 'googleai/gemini-1.5-flash-001',
+  async (input: TransformImageStyleInput) => {
+    let baseStyleForTextPrompt = input.style; 
+    let isUnveiledStyle = false;
+    let specificStyleForUnveiledImage = ""; 
+
+    if (input.style === "Realistic Unveiled") {
+      isUnveiledStyle = true;
+      specificStyleForUnveiledImage = "Realistic";
+    } else if (input.style === "Anime-Style Unveiled") {
+      isUnveiledStyle = true;
+      specificStyleForUnveiledImage = "Anime-Style";
+    }
+
+    let textPromptGenerationInstruction: string;
+
+    if (isUnveiledStyle) {
+      textPromptGenerationInstruction = `Your task is to generate a textual instruction for an AI image editing model. The AI model will be given an input image (which you are also seeing now via multimodal input). Your textual instruction should guide the AI to modify the subject in the input image. The modification involves artistically and safely "unveiling" their clothing – this means redrawing them in simple, minimal, non-explicit attire (e.g., basic swimwear, a plain leotard, or athletic wear appropriate for the context), or in an SFW (safe-for-work) artistic nude style reminiscent of classical sculptures, ensuring no explicit or inappropriate content. The final visual style of the edited image should be '${specificStyleForUnveiledImage}'. Your instruction must emphasize SFW artistic representation and guide the AI to maintain likeness to the original subject's facial features and general body type as much as possible. The instruction should be concise and direct for the image editing model.`;
+    } else {
+      textPromptGenerationInstruction = `Your task is to generate a textual instruction for an AI image editing model. The AI model will be given an input image (which you are also seeing now via multimodal input). Your textual instruction should guide the AI to transform the input image, redrawing it in the style of '${baseStyleForTextPrompt}'. Your instruction must emphasize SFW (safe-for-work) artistic representation and guide the AI to maintain likeness to the original subject's features and composition as much as possible. The instruction should be concise and direct for the image editing model.`;
+    }
+
+    // 1. Generate textual editing instructions based on the input image and desired style.
+    const {text: generatedEditingInstruction} = await ai.generate({
+      model: 'googleai/gemini-1.5-flash-001', // Good for text generation from multimodal input
       prompt: [
-        {media: {url: input.photoDataUri}},
-        {text: `Create a descriptive text prompt to generate an image in the style of ${input.style}. Focus on maintaining likeness to the original subject and creating an SFW output.`},
+        {media: {url: input.photoDataUri}},     // Provide the original image context
+        {text: textPromptGenerationInstruction}, // Instruction for generating the editing text
       ],
     });
 
-    // 2. Generate the transformed image using the generated prompt.
+    // 2. Generate the transformed image using the original image and the generated editing instructions.
     const {media} = await ai.generate({
-      model: 'googleai/gemini-2.0-flash-exp',
-      prompt: generatedPrompt,
+      model: 'googleai/gemini-2.0-flash-exp',     // Image generation model
+      prompt: [
+        {media: {url: input.photoDataUri}},       // Original image as base
+        {text: generatedEditingInstruction}       // Textual instructions from step 1
+      ],
       config: {
-        responseModalities: ['TEXT', 'IMAGE'],
+        responseModalities: ['TEXT', 'IMAGE'], // Expect image and potentially text output
       },
     });
 
-    return {transformedImage: media.url!};
+    if (!media?.url) {
+      throw new Error('Image generation failed to return a media URL.');
+    }
+
+    return {transformedImage: media.url};
   }
 );
+

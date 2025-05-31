@@ -75,7 +75,15 @@ const transformImageStyleFlow = ai.defineFlow(
     let textPromptGenerationInstruction: string;
 
     if (isUnveiledStyle) {
-      textPromptGenerationInstruction = `Your task is to generate a textual instruction for an AI image editing model. The AI model will be given an input image (which you are also seeing now via multimodal input). Your textual instruction should guide the AI to modify the subject in the input image. The modification involves artistically and safely "unveiling" their clothing – this means redrawing them in simple, minimal, non-explicit attire (e.g., basic swimwear, a plain leotard, or athletic wear appropriate for the context), or in an SFW (safe-for-work) artistic nude style reminiscent of classical sculptures, ensuring no explicit or inappropriate content. The final visual style of the edited image should be '${specificStyleForUnveiledImage}'. Your instruction must emphasize SFW artistic representation and guide the AI to maintain likeness to the original subject's facial features and general body type as much as possible. The instruction should be concise and direct for the image editing model.`;
+      textPromptGenerationInstruction = `Your task is to generate a textual instruction for an AI image editing model. The model will be given an input image (visible to you) and your text. Your instruction must guide the AI to redraw the subject in the input image with *minimal, SFW (Safe-For-Work), non-explicit* attire.
+Examples of acceptable SFW attire include:
+- Basic, full-coverage swimwear (e.g., one-piece swimsuit for females, swim trunks for males).
+- Simple, plain leotards or unitards that cover the torso.
+- Athletic wear appropriate for a non-sexualized context (e.g., sports bra and shorts for a workout scene, if contextually appropriate and ensuring modest coverage).
+Alternatively, guide the AI towards an SFW artistic nude style, *strictly reminiscent of classical sculptures (e.g., marble statue) or anatomical drawings*, devoid of any sexualization or explicit details. The aim is artistic representation, not titillation.
+*Crucially, the instruction must explicitly state to AVOID any depiction of nudity that is not in the style of classical art or anatomical study. It must AVOID any sexually suggestive poses, attire, or contexts. Prohibit depiction of lingerie, transparent clothing, or overly revealing attire. The output must be suitable for all audiences and must not violate safety policies against depicting sexual content or non-consensual sexual content.*
+The final visual style of the edited image should be '${specificStyleForUnveiledImage}'.
+The instruction must emphasize SFW artistic representation, maintain likeness to the original subject's facial features and general body type as much as possible, and be concise for the image editing model.`;
     } else {
       textPromptGenerationInstruction = `Your task is to generate a textual instruction for an AI image editing model. The AI model will be given an input image (which you are also seeing now via multimodal input). Your textual instruction should guide the AI to transform the input image, redrawing it in the style of '${baseStyleForTextPrompt}'. Your instruction must emphasize SFW (safe-for-work) artistic representation and guide the AI to maintain likeness to the original subject's features and composition as much as possible. The instruction should be concise and direct for the image editing model.`;
     }
@@ -87,6 +95,14 @@ const transformImageStyleFlow = ai.defineFlow(
         {media: {url: input.photoDataUri}},     // Provide the original image context
         {text: textPromptGenerationInstruction}, // Instruction for generating the editing text
       ],
+       config: { // Added safety settings for the instruction generation step
+        safetySettings: [
+          { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_LOW_AND_ABOVE' },
+          { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+          { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+          { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+        ],
+      }
     });
 
     // 2. Generate the transformed image using the original image and the generated editing instructions.
@@ -98,11 +114,17 @@ const transformImageStyleFlow = ai.defineFlow(
       ],
       config: {
         responseModalities: ['TEXT', 'IMAGE'], // Expect image and potentially text output
+        safetySettings: [ // Added safety settings for the image generation step
+          { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_LOW_AND_ABOVE' },
+          { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+          { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+          { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+        ],
       },
     });
 
     if (!media?.url) {
-      throw new Error('Image generation failed to return a media URL.');
+      throw new Error('Image generation failed to return a media URL or was blocked due to safety policies.');
     }
 
     return {transformedImage: media.url};
